@@ -27,10 +27,12 @@
 #include <assert.h>
 
 #include <vector>
-
+#include <time.h>
 #define MAXWORDS	32
 
 class ACQ435_Data {
+
+protected:
 	const char* def;
 	const int site;
 	const char* banks;
@@ -117,7 +119,7 @@ public:
 	void setOffset(int _offset){
 		offset = _offset;
 	}
-	bool isValid(unsigned *data){
+	virtual bool isValid(unsigned *data){
 		unsigned *mydata = data+offset;
 		int errors = 0;
 
@@ -150,42 +152,168 @@ public:
 	}
 	static unsigned ID_MASK;
 
-	static ACQ435_Data* create(const char* _def){
-		int _site;
-		bool _spad_enabled = false;
-		char *bank_def;
-
-		int rc;
-#define RETERR	do { rc = __LINE__; goto parse_err; } while(0)
-
-		if (getenv("NOSID")){
-			ID_MASK = 0x1f;
-			fprintf(stderr, "ID_MASK set %02x\n", ID_MASK);
-		}else{
-			ID_MASK = 0xff;
-		}
-		if (sscanf(_def, "%d=%ms", &_site, &bank_def) != 2) RETERR;
-
-		if (!(_site >= 0 && _site <= 6)) RETERR;
-		for (int ii = 0; ii < strlen(bank_def); ++ii){
-			switch(bank_def[ii]){
-			case 'A':
-			case 'B':
-			case 'C':
-			case 'D':
-				break;
-			case 'S':
-				_spad_enabled = true;
-				break;
-			}
-		}
-		return new ACQ435_Data(_def, _site, bank_def, _spad_enabled);
-parse_err:
-		fprintf(stderr, "ERROR: line:%d USAGE: site=[ABCD][S]", rc);
-		return 0;
-	}
+	static ACQ435_Data* create(const char* _def);
 };
 unsigned ACQ435_Data::ID_MASK;
+
+class BitCollector {
+public:
+	virtual unsigned collect_bits(unsigned *data, int bit) = 0;
+	BitCollector(const char* _name) {
+		fprintf(stderr, "%s\n", _name);
+	}
+};
+
+class BitCollectorLsbFirst : public BitCollector {
+public:
+	virtual unsigned collect_bits(unsigned *data, int bit){
+		unsigned xx = 0;
+		unsigned bmask = 1<<bit;
+		for (unsigned cursor = 0x1; cursor; cursor <<= 1){
+			if (*data++ & bmask){
+				xx |= cursor;
+			}
+		}
+
+		return xx;
+	}
+	BitCollectorLsbFirst() : BitCollector("BitCollectorLsbFirst") {}
+};
+
+class BitCollectorMsbFirst : public BitCollector {
+public:
+	virtual unsigned collect_bits(unsigned *data, int bit){
+		unsigned xx = 0;
+		unsigned bmask = 1<<bit;
+		for (unsigned cursor = 1<<31; cursor; cursor >>= 1){
+			if (*data++ & bmask){
+				xx |= cursor;
+			}
+		}
+
+		return xx;
+	}
+	BitCollectorMsbFirst() : BitCollector("BitCollectorMsbFirst") {}
+};
+
+class ACQ435_DataBitslice : public ACQ435_Data {
+	struct BS {
+		unsigned d7, d6, d5;
+		BS(): d7(0), d6(0), d5(0)
+		{}
+	} bs;
+	time_t last_time;
+	BitCollector& bc;
+
+public:
+	bool always_valid;
+
+	ACQ435_DataBitslice(BitCollector& _bc, const char* _def, int _site,
+				const char* _banks, bool _spad_enabled,
+				bool _always_valid) :
+		ACQ435_Data(_def, _site, _banks, _spad_enabled),
+		bc(_bc),
+		last_time(0),
+		always_valid(_always_valid)
+	{}
+	virtual bool isValid(unsigned *data){
+		if (!ACQ435_Data::isValid(data)){
+			return false;
+		}
+		BS new_bs;
+		new_bs.d7 = bc.collect_bits(data, 7);
+		new_bs.d6 = bc.collect_bits(data, 6);
+		new_bs.d5 = bc.collect_bits(data, 5);
+
+		if (always_valid){
+			fprintf(stderr, "%08x %08x %08x\n",
+					new_bs.d7, new_bs.d6, new_bs.d5);
+			return true;
+		}
+		if (new_bs.d7 != bs.d7+1){
+			fprintf(stderr, "d7 error 0x%08x 0x%08x\n",
+					bs.d7, new_bs.d7);
+			return false;
+		}
+		time_t now = time(0);
+		if (now != last_time){
+			fprintf(stderr, "Sample Count:%08x\n", new_bs.d7);
+		}
+		if (new_bs.d6 != bs.d6){
+			fprintf(stderr, "d6 %08x => %08x\n", bs.d6, new_bs.d6);
+		}
+		if (new_bs.d5 != bs.d5){
+			fprintf(stderr, "d5 %08x => %08x\n", bs.d5, new_bs.d5);
+		}
+		bs = new_bs;
+		last_time = now;
+
+		return true;
+	}
+};
+ACQ435_Data* ACQ435_Data::create(const char* _def){
+	int _site;
+	bool _spad_enabled = false;
+	char *bank_def;
+	bool bitslice = getenv("BITSLICE_FRAME") != 0;
+
+	bool nosid = bitslice || getenv("NOSID") != 0;
+
+	int rc;
+#define RETERR	do { rc = __LINE__; goto parse_err; } while(0)
+
+	if (getenv("NOSID")){
+		ID_MASK = 0x1f;
+		fprintf(stderr, "ID_MASK set %02x\n", ID_MASK);
+	}else{
+		ID_MASK = 0xff;
+	}
+	if (sscanf(_def, "%d=%ms", &_site, &bank_def) != 2) RETERR;
+
+	if (!(_site >= 0 && _site <= 6)) RETERR;
+	for (int ii = 0; ii < strlen(bank_def); ++ii){
+		switch(bank_def[ii]){
+		case 'A':
+		case 'B':
+		case 'C':
+		case 'D':
+			break;
+		case 'S':
+			_spad_enabled = true;
+			break;
+		}
+	}
+
+	if (nosid){
+		ID_MASK = 0x1f;
+		fprintf(stderr, "ID_MASK set %02x\n", ID_MASK);
+	}else{
+		ID_MASK = 0xff;
+	}
+	if (bitslice){
+		BitCollector *bc;
+		if (strcmp(getenv("BITSLICE_FRAME"), "LSB") == 0){
+			bc = new BitCollectorLsbFirst;
+		}else{
+			bc = new BitCollectorMsbFirst;
+		}
+		bool always_valid = false;
+		if (getenv("BITSLICE_ALWAYS_VALID")){
+			always_valid = atoi(getenv("BITSLICE_ALWAYS_VALID"));
+		}
+
+		return new ACQ435_DataBitslice(*bc,
+				_def, _site, bank_def, _spad_enabled,
+				always_valid);
+	}else{
+		return new ACQ435_Data(_def, _site, bank_def, _spad_enabled);
+	}
+parse_err:
+	fprintf(stderr, "ERROR: line:%d USAGE: site=[ABCD][S]", rc);
+	return 0;
+}
+
+
 
 int main(int argc, char* argv[])
 {
