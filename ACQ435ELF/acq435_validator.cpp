@@ -30,22 +30,31 @@
 #include <time.h>
 #define MAXWORDS	32
 
+#define ES_MAGIC 	0xaa55f151
+#define NES		4
+
+unsigned long long byte_count = 0;
 class ACQ435_Data {
 
 protected:
+	static bool monitor_spad;
+
 	const char* def;
 	const int site;
 	const char* banks;
 	bool spad_enabled;
 	const int nwords;
 	unsigned* ids;
+	unsigned* spad_cache;
+
 	char* actual_banks;
 	unsigned offset;
 	unsigned sample;
 
 	enum IDS {
 		IDS_NOCHECK = 0,
-		IDS_SAMPLE = 0xff000000
+		IDS_SAMPLE = 0xff000000,
+		IDS_SPAD   = 0xfe000000
 	};
 	int nbanks() {
 		return strlen(banks);
@@ -79,11 +88,13 @@ protected:
 		def(_def), site(_site),
 		banks(_banks), spad_enabled(_spad_enabled),
 		nwords(strlen(banks)*8)
+
 	{
 		ids = new unsigned[nwords];
-		unsigned sid = site << 5;
-		int ispad = spad_enabled? nbanks()*8: 999;
 
+
+
+		unsigned sid = site << 5;
 		actual_banks = new char[2*nbanks()+1];
 
 		// banks ABCD actual_banks ABCDDCBA
@@ -93,10 +104,18 @@ protected:
 		}
 		actual_banks[2*nbanks()] = '\0';
 
+		if (spad_enabled && monitor_spad){
+			printf("MONITOR_SPAD: enabled\n");
+			spad_cache = new unsigned[nwords];
+		}
 
 		for (int ic = 0; ic < nwords; ++ic){
-			if (ic >= ispad){
-				ids[ic] = ic == ispad? IDS_SAMPLE: IDS_NOCHECK;
+			if (spad_enabled){
+				if (ic == 0){
+					ids[ic] = IDS_SAMPLE;
+				}else{
+					ids[ic] = monitor_spad? IDS_SPAD: IDS_NOCHECK;
+				}
 			}else{
 				ids[ic] = sid | cid(ic);
 			}
@@ -119,13 +138,32 @@ public:
 	void setOffset(int _offset){
 		offset = _offset;
 	}
+	bool isES(unsigned *data){
+		for (int ii = 0; ii < NES; ++ii){
+			if (data[ii] != ES_MAGIC ){
+				return false;
+			}
+		}
+		printf("%16lld ES detected %08x at 0x%08x, %d\n",
+			byte_count, data[0], data[NES], data[NES]);
+	}
 	virtual bool isValid(unsigned *data){
 		unsigned *mydata = data+offset;
 		int errors = 0;
+		bool print_spad = false;
 
+		if (isES(data)){
+			return true;
+		}
 		for (int ic = 0; ic < nwords; ++ic){
 			switch(ids[ic]){
 			case IDS_NOCHECK: break;
+			case IDS_SPAD:
+				if (mydata[ic] != spad_cache[ic]){
+					print_spad = true;
+					spad_cache[ic] = mydata[ic];
+				}
+				break;
 			case IDS_SAMPLE:
 				if (mydata[ic] == sample+1){
 					++sample;
@@ -144,10 +182,25 @@ public:
 					break;
 				}else{
 					++errors;
-					printf("ERROR at %d\n", ic);
+					printf("%8lld ERROR at %d\n", byte_count, ic);
 				}
 			}
 		}
+
+		if (print_spad){
+			for (int ic = 0; ic < nwords; ++ic){
+				switch(ids[ic]){
+				case IDS_SPAD:
+				case IDS_SAMPLE:
+					printf("%08x ", mydata[ic]);
+					break;
+				default:
+					;
+				}
+			}
+			printf("\n");
+		}
+
 		return errors == 0;
 	}
 	static unsigned ID_MASK;
@@ -217,9 +270,12 @@ public:
 		always_valid(_always_valid)
 	{}
 	virtual bool isValid(unsigned *data){
-		if (!ACQ435_Data::isValid(data)){
+		if (isES(data)){
+			return true;
+		}else if (!ACQ435_Data::isValid(data)){
 			return false;
 		}
+
 		BS new_bs;
 		new_bs.d7 = bc.collect_bits(data, 7);
 		new_bs.d6 = bc.collect_bits(data, 6);
@@ -240,10 +296,10 @@ public:
 			fprintf(stderr, "Sample Count:%08x\n", new_bs.d7);
 		}
 		if (new_bs.d6 != bs.d6){
-			fprintf(stderr, "d6 %08x => %08x\n", bs.d6, new_bs.d6);
+			printf("%16lld sc %d d6 %08x => %08x\n", byte_count, bs.d7, bs.d6, new_bs.d6);
 		}
 		if (new_bs.d5 != bs.d5){
-			fprintf(stderr, "d5 %08x => %08x\n", bs.d5, new_bs.d5);
+			printf("%16lld sc %d d5 %08x => %08x\n", byte_count, bs.d7, bs.d5, new_bs.d5);
 		}
 		bs = new_bs;
 		last_time = now;
@@ -251,6 +307,8 @@ public:
 		return true;
 	}
 };
+
+bool ACQ435_Data::monitor_spad;
 ACQ435_Data* ACQ435_Data::create(const char* _def){
 	int _site;
 	bool _spad_enabled = false;
@@ -260,14 +318,23 @@ ACQ435_Data* ACQ435_Data::create(const char* _def){
 	bool nosid = bitslice || getenv("NOSID") != 0;
 
 	int rc;
+	static bool done_one;
 #define RETERR	do { rc = __LINE__; goto parse_err; } while(0)
 
-	if (getenv("NOSID")){
-		ID_MASK = 0x1f;
-		fprintf(stderr, "ID_MASK set %02x\n", ID_MASK);
-	}else{
-		ID_MASK = 0xff;
+	if (!done_one){
+		if (getenv("NOSID")){
+			ID_MASK = 0x1f;
+			fprintf(stderr, "ID_MASK set %02x\n", ID_MASK);
+		}else{
+			ID_MASK = 0xff;
+		}
+
+		if (getenv("MONITOR_SPAD") != 0){
+			monitor_spad = atoi(getenv("MONITOR_SPAD"));
+		}
+		done_one = true;
 	}
+
 	if (sscanf(_def, "%d=%ms", &_site, &bank_def) != 2) RETERR;
 
 	if (!(_site >= 0 && _site <= 6)) RETERR;
@@ -339,7 +406,7 @@ int main(int argc, char* argv[])
 	//ACQ435_Data::create(argv[ii])->print();
 
 	unsigned* buf = new unsigned[sample_size];
-	unsigned long long byte_count = 0;
+
 
 	while(fread(buf, sizeof(unsigned), sample_size, stdin) == sample_size){
 		for (int si = 0; si < sites.size(); ++si){
