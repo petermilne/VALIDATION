@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------------- *
- * acq435_validator.cpp  		                     	                    
+ * acq435_validator.cpp  		                     	             *
  * ------------------------------------------------------------------------- *
  *   Copyright (C) 2014 Peter Milne, D-TACQ Solutions Ltd                
  *                      <peter dot milne at D hyphen TACQ dot com>          
@@ -28,10 +28,13 @@
 
 #include <vector>
 #include <time.h>
-#define MAXWORDS	32
+#define MAXWORDS	66
 
 #define ES_MAGIC 	0xaa55f151
 #define NES		4
+
+
+bool verbose;
 
 unsigned long long byte_count = 0;
 class ACQ435_Data {
@@ -43,26 +46,25 @@ protected:
 	const int site;
 	const char* banks;
 	bool spad_enabled;
-	const int nwords;
+	bool pmod_present;
+	int nwords;
 	unsigned* ids;
 	unsigned* spad_cache;
-
+	int nbanks;
 	char* actual_banks;
 	unsigned offset;
 	unsigned sample;
 
 	enum IDS {
 		IDS_NOCHECK = 0,
-		IDS_SAMPLE = 0xff000000,
-		IDS_SPAD   = 0xfe000000
+		IDS_SAMPLE = -1,
+		IDS_SPAD   = -2,
+		IDS_PMOD   = -3,
 	};
-	int nbanks() {
-		return strlen(banks);
-	}
 	unsigned cid(int ic, bool upper, int offset) {
 		unsigned rc;
 		if (upper){
-			rc = MAXWORDS-offset-4 + ic%4;
+			rc = nbanks*8-offset-4 + ic%4;
 		}else{
 			rc = offset+ic%4;
 		}
@@ -72,63 +74,106 @@ protected:
 	unsigned cid(int ic){
 		bool upper = ic >= nwords/2;
 		int ib = ic/4;
+
+		printf("cid(%d) ib:%d switch(%c) %s\n", ic, ib, actual_banks[ib], actual_banks);
+
 		switch(actual_banks[ib]){
 		case 'A':	return cid(ic, upper, 0);
 		case 'B':	return cid(ic, upper, 4);
 		case 'C':	return cid(ic, upper, 8);
 		case 'D':	return cid(ic, upper,12);
-		case 'S': 	return 0;
+		case 'S': 	
+		case 'P':
+			return 0;
 		default:
-				assert(0);
+			assert(0);
 		}
 	}
+	bool bank_mask[256];   // index by ascii value
+
 
 	ACQ435_Data(const char* _def, int _site,
-			const char* _banks, bool _spad_enabled) :
-		def(_def), site(_site),
-		banks(_banks), spad_enabled(_spad_enabled),
-		nwords(strlen(banks)*8)
-
+			const char* _banks) :
+				def(_def), site(_site),
+				banks(_banks),
+				nwords(0), nbanks(0)
 	{
-		ids = new unsigned[nwords];
+		memset(bank_mask, 0, sizeof(bank_mask));
 
 
-
+		for (int ii = 0; ii < strlen(banks); ++ii){
+			bank_mask[banks[ii]] = 1;
+			switch(banks[ii]){
+			case 'A':
+			case 'B':
+			case 'C':
+			case 'D':
+				nwords += 8;
+				++nbanks;
+				break;
+			case 'S':
+				nwords += 8;
+				spad_enabled = true;
+			case 'P':
+				nwords += 1;
+				pmod_present = true;
+				break;
+			default:
+				fprintf(stderr, "ERROR invalid bank %c\n", banks[ii]);
+				exit(-1);
+			}
+		}
 		unsigned sid = site << 5;
-		actual_banks = new char[2*nbanks()+1];
+		actual_banks = new char[nbanks*2+2+1];
+		int ib = 0;
 
 		// banks ABCD actual_banks ABCDDCBA
-		for (int ib = 0; ib < nbanks(); ++ib){
+		for (; ib < nbanks; ++ib){
 			actual_banks[ib] = banks[ib];
-			actual_banks[2*nbanks()-ib-1] = banks[ib];
+			actual_banks[2*nbanks-ib-1] = banks[ib];
 		}
-		actual_banks[2*nbanks()] = '\0';
+		ib = nbanks * 2;
+
+		if (pmod_present) actual_banks[ib++] = 'P';
+		if (spad_enabled) actual_banks[ib++] = 'S';
+		actual_banks[ib] = '\0';
+
+
+		ids = new unsigned[nwords];
 
 		if (spad_enabled && monitor_spad){
 			printf("MONITOR_SPAD: enabled\n");
 			spad_cache = new unsigned[nwords];
 		}
 
+		bool pmod_done = false;
+		bool sample_done = false;
+
 		for (int ic = 0; ic < nwords; ++ic){
-			if (spad_enabled){
-				if (ic == 0){
+			if (ic < nbanks*8){
+				ids[ic] = sid | cid(ic);
+			}else{
+				if (pmod_present && !pmod_done){
+					ids[ic] = IDS_NOCHECK;
+					pmod_done = true;
+				}else if (spad_enabled && !sample_done){
 					ids[ic] = IDS_SAMPLE;
+					sample_done = true;
 				}else{
 					ids[ic] = monitor_spad? IDS_SPAD: IDS_NOCHECK;
 				}
-			}else{
-				ids[ic] = sid | cid(ic);
 			}
 		}
 	}
 public:
 	void print() {
 		printf(
-	"ACQ435_Data site:%d banks %s actual_banks %s spad: %s\n",
-			site, banks, actual_banks, 
-			spad_enabled? "SPAD ENABLED": "");
+				"ACQ435_Data site:%d banks %s actual_banks %s spad: %s\n",
+				site, banks, actual_banks,
+				spad_enabled? "SPAD ENABLED": "");
+		printf("nwords:%d\n", nwords);
 		for (int ii = 0; ii < nwords; ++ii){
-			printf("%02x ", ids[ii]);
+			printf("%02x%c", ids[ii], ii%16==15? '\n': ' ');
 		}
 		printf("\n");
 	}
@@ -145,7 +190,7 @@ public:
 			}
 		}
 		printf("%16lld ES detected %08x at 0x%08x, %d\n",
-			byte_count, data[0], data[NES], data[NES]);
+				byte_count, data[0], data[NES], data[NES]);
 	}
 	virtual bool isValid(unsigned *data){
 		unsigned *mydata = data+offset;
@@ -156,8 +201,12 @@ public:
 			return true;
 		}
 		for (int ic = 0; ic < nwords; ++ic){
+			bool this_error = false;
+
+
 			switch(ids[ic]){
-			case IDS_NOCHECK: break;
+			case IDS_NOCHECK:
+				break;
 			case IDS_SPAD:
 				if (mydata[ic] != spad_cache[ic]){
 					print_spad = true;
@@ -174,6 +223,7 @@ public:
 				}else{
 					printf("SEQ error wanted %08x got %08x\n",
 							mydata[ic], sample+1);
+					this_error = true;
 					++errors;
 				}
 				break;    // @@todo
@@ -182,8 +232,15 @@ public:
 					break;
 				}else{
 					++errors;
-					printf("%8lld ERROR at %d\n", byte_count, ic);
+					this_error = true;
+					//printf("%8lld ERROR at %d %08x ^ %08x\n", byte_count, ic, mydata[ic], ids[ic]);
 				}
+			}
+
+			if (verbose){
+				printf("%8lld [%2d] %08x %08x  %s\n",
+					byte_count, ic, ids[ic], mydata[ic],
+					this_error? "ERROR": "OK");
 			}
 		}
 
@@ -262,12 +319,11 @@ public:
 	bool always_valid;
 
 	ACQ435_DataBitslice(BitCollector& _bc, const char* _def, int _site,
-				const char* _banks, bool _spad_enabled,
-				bool _always_valid) :
-		ACQ435_Data(_def, _site, _banks, _spad_enabled),
-		bc(_bc),
-		last_time(0),
-		always_valid(_always_valid)
+			const char* _banks, bool _always_valid) :
+				ACQ435_Data(_def, _site, _banks),
+				bc(_bc),
+				last_time(0),
+				always_valid(_always_valid)
 	{}
 	virtual bool isValid(unsigned *data){
 		if (isES(data)){
@@ -311,7 +367,6 @@ public:
 bool ACQ435_Data::monitor_spad;
 ACQ435_Data* ACQ435_Data::create(const char* _def){
 	int _site;
-	bool _spad_enabled = false;
 	char *bank_def;
 	bool bitslice = getenv("BITSLICE_FRAME") != 0;
 
@@ -338,18 +393,7 @@ ACQ435_Data* ACQ435_Data::create(const char* _def){
 	if (sscanf(_def, "%d=%ms", &_site, &bank_def) != 2) RETERR;
 
 	if (!(_site >= 0 && _site <= 6)) RETERR;
-	for (int ii = 0; ii < strlen(bank_def); ++ii){
-		switch(bank_def[ii]){
-		case 'A':
-		case 'B':
-		case 'C':
-		case 'D':
-			break;
-		case 'S':
-			_spad_enabled = true;
-			break;
-		}
-	}
+
 
 	if (nosid){
 		ID_MASK = 0x1f;
@@ -370,12 +414,11 @@ ACQ435_Data* ACQ435_Data::create(const char* _def){
 		}
 
 		return new ACQ435_DataBitslice(*bc,
-				_def, _site, bank_def, _spad_enabled,
-				always_valid);
+				_def, _site, bank_def, always_valid);
 	}else{
-		return new ACQ435_Data(_def, _site, bank_def, _spad_enabled);
+		return new ACQ435_Data(_def, _site, bank_def);
 	}
-parse_err:
+	parse_err:
 	fprintf(stderr, "ERROR: line:%d USAGE: site=[ABCD][S]", rc);
 	return 0;
 }
