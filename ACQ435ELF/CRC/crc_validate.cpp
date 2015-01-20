@@ -10,6 +10,9 @@ using namespace std;
 
 // #define ES_MAGIC 0xaa55f155
 #define ES_MAGIC 0xaa55f154
+#define MAGIC_MASK      0xFFFFFFF0
+#define IS_MAGIC(x)     (((x)&MAGIC_MASK)==(ES_MAGIC&MAGIC_MASK))
+
 int NBANK1; // number of banks in first module
 int NBANK2; // number of banks in second module
 int NCHAN; // total number of channels
@@ -22,7 +25,7 @@ bool is_es()
 {
 	for (int i=0;i<NBANK1+NBANK2;++i) {
 		for (int j=0;j<4;++j) {
-			if (data[8*i+j] != ES_MAGIC) return false;
+			if (!IS_MAGIC(data[8*i+j])) return false;
 		}
 	}
 	return true;
