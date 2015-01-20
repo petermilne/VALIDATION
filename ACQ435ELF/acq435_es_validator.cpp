@@ -3,15 +3,23 @@
 #include <string.h>
 
 #define MAGIC 0xaa55f154
-#define MAGIC_FOURSOME(x4) \
-	((x4)[0] == MAGIC && (x4)[1] == MAGIC && (x4)[2] == MAGIC && (x4)[3] == MAGIC)
+
+
+/*
+#define IS_MAGIC(x)	((x)==MAGIC)
+*/
+#define MAGIC_MASK	0xFFFFFFF0
+#define IS_MAGIC(x)	(((x)&MAGIC_MASK)==(MAGIC&MAGIC_MASK))
+
+#define MAGIC_FOURSOME(x4)	(IS_MAGIC((x4)[0]) && IS_MAGIC((x4)[1]) && IS_MAGIC((x4)[2]) && IS_MAGIC((x4)[3]))
 
 int nchannels = 32;
 int errors;
 
 int verbose;
 
-void validate(unsigned* xx, int nchannels, int sample, int *prev_sample)
+int validate(unsigned* xx, int nchannels, int sample, int *prev_sample)
+/* -1 ES_ERR, 0 : no ES, 1: ESGOOD */
 {
 	if (MAGIC_FOURSOME(xx)){
 		int broke_at = 0;
@@ -29,6 +37,9 @@ void validate(unsigned* xx, int nchannels, int sample, int *prev_sample)
 			broke_at? "FAIL": "PASS");
 		}
 		*prev_sample = sample;
+		return broke_at? -1: 1;
+	}else{
+		return 0;
 	}
 }
 
@@ -43,7 +54,10 @@ int validate(const char* fname)
 	int prev_sample = 0;
 
 	while (fread(xx, sizeof(unsigned), nchannels, fp) == nchannels){
-		validate(xx, nchannels, sample, &prev_sample);
+		if (validate(xx, nchannels, sample, &prev_sample) == 0){
+			/* check for second half ES */
+			validate(xx+nchannels/2, nchannels, sample, &prev_sample);
+		}
 		++sample;
 	}
 
