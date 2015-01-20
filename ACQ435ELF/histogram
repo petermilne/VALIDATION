@@ -1,0 +1,12 @@
+#!/bin/sh
+
+DECADE=${DECADE:-3}
+echo > top100.txt
+
+(
+for file in $*
+do
+	VERBOSE=2 NCHANNELS=48 ../acq435_es_validator $file | head -n 20  | awk '{ print $1 }'
+done ) | sort -n | uniq -c
+
+

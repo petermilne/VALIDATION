@@ -1,0 +1,8 @@
+#!/bin/bash
+
+
+for file in $*
+do
+        VERBOSE=1 NCHANNELS=48 ../acq435_es_validator $file 
+done
+

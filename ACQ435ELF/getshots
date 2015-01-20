@@ -1,0 +1,10 @@
+#!/bin/sh
+max=${1:-1000}
+uut=${UUT:-acq1001_044}
+length={$2:-10000}
+for shot in $(seq 1 $max)
+do 
+	nc $uut 4210 | dd bs=256 count=10000 of=shot$(printf "%03d" $shot); 
+	sleep 5; 
+done
+
