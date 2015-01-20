@@ -1,10 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define MAGIC 0xaa55f154
 #define MAGIC_FOURSOME(x4) \
 	((x4)[0] == MAGIC && (x4)[1] == MAGIC && (x4)[2] == MAGIC && (x4)[3] == MAGIC)
 
+int nchannels = 32;
 int errors;
 
 int verbose;
@@ -29,22 +31,43 @@ void validate(unsigned* xx, int nchannels, int sample, int *prev_sample)
 		*prev_sample = sample;
 	}
 }
-int main(int argc, char *argv[])
-{
-	int nchannels = 32;
-	if (argc > 1) nchannels = atoi(argv[1]);
-	if (getenv("VERBOSE")) verbose = atoi(getenv("VERBOSE"));
 
+int validate(const char* fname)
+{
+	FILE* fp = strcmp(fname, "-") ==0 ? stdin: fopen(fname, "r");
+	if (fp == 0){ 
+		perror(fname); exit(1);
+	}
+	unsigned* xx = new unsigned[nchannels];
 	int sample = 0;
 	int prev_sample = 0;
-	unsigned* xx = new unsigned[nchannels];
 
-	while (fread(xx, sizeof(unsigned), nchannels, stdin) == nchannels){
+	while (fread(xx, sizeof(unsigned), nchannels, fp) == nchannels){
 		validate(xx, nchannels, sample, &prev_sample);
 		++sample;
 	}
-	if (verbose){
-		printf("%d/%d\n", ::errors, sample);
+
+	if (strcmp(fname, "-")){
+		fclose(fp);
 	}
-	return errors? 1: 0;
+	if (verbose){
+		printf("%d/%d %s\n", ::errors, sample, fname);
+	}
+	return errors;
+}
+int main(int argc, char *argv[])
+{
+	if (getenv("NCHANNELS")) nchannels = atoi(getenv("NCHANNELS"));
+	if (getenv("VERBOSE")) verbose = atoi(getenv("VERBOSE"));
+
+	if (argc == 1){
+		return validate("-");
+	}else{
+		for (int iarg = 1; iarg < argc; ++iarg){
+			if (validate(argv[iarg])){
+				return 1;
+			}
+		}
+	}
+	return 0;
 }
