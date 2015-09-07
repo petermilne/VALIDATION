@@ -33,6 +33,13 @@
 #define ES_MAGIC 	0xaa55f151
 #define NES		4
 
+/**
+ * Bank def :
+ * ABCD : up to 4 banks of 8 channels
+ * S    : scratchpad SPAD : up to 8 LW of status
+ * P    : PMOD
+ * lm   : bitslice LSB, MSB
+ */
 
 bool verbose;
 
@@ -75,7 +82,10 @@ protected:
 		bool upper = ic >= nwords/2;
 		int ib = ic/4;
 
-		printf("cid(%d) ib:%d switch(%c) %s\n", ic, ib, actual_banks[ib], actual_banks);
+		if (verbose){
+			printf("cid(%d) ib:%d switch(%c) %s\n",
+				ic, ib, actual_banks[ib], actual_banks);
+		}
 
 		switch(actual_banks[ib]){
 		case 'A':	return cid(ic, upper, 0);
@@ -84,6 +94,8 @@ protected:
 		case 'D':	return cid(ic, upper,12);
 		case 'S': 	
 		case 'P':
+		case 'l':
+		case 'm':
 			return 0;
 		default:
 			assert(0);
@@ -93,10 +105,11 @@ protected:
 
 
 	ACQ435_Data(const char* _def, int _site,
-			const char* _banks) :
+			const char* _banks, unsigned id_mask) :
 				def(_def), site(_site),
 				banks(_banks),
-				nwords(0), nbanks(0)
+				nwords(0), nbanks(0),
+				ID_MASK(id_mask)
 	{
 		memset(bank_mask, 0, sizeof(bank_mask));
 
@@ -117,6 +130,10 @@ protected:
 			case 'P':
 				nwords += 1;
 				pmod_present = true;
+				break;
+			case 'l':
+			case 'm':
+				// bitslice opts: ignore
 				break;
 			default:
 				fprintf(stderr, "ERROR invalid bank %c\n", banks[ii]);
@@ -166,7 +183,7 @@ protected:
 		}
 	}
 public:
-	void print() {
+	virtual void print() {
 		printf(
 				"ACQ435_Data site:%d banks %s actual_banks %s spad: %s\n",
 				site, banks, actual_banks,
@@ -260,11 +277,10 @@ public:
 
 		return errors == 0;
 	}
-	static unsigned ID_MASK;
+	unsigned ID_MASK;
 
 	static ACQ435_Data* create(const char* _def);
 };
-unsigned ACQ435_Data::ID_MASK;
 
 class BitCollector {
 public:
@@ -314,18 +330,21 @@ class ACQ435_DataBitslice : public ACQ435_Data {
 	} bs;
 	time_t last_time;
 	BitCollector& bc;
+	bool first_sample;
 
 public:
 	bool always_valid;
 
 	ACQ435_DataBitslice(BitCollector& _bc, const char* _def, int _site,
 			const char* _banks, bool _always_valid) :
-				ACQ435_Data(_def, _site, _banks),
+				ACQ435_Data(_def, _site, _banks, 0x1f),
 				bc(_bc),
 				last_time(0),
-				always_valid(_always_valid)
+				always_valid(_always_valid),
+				first_sample(true)
 	{}
 	virtual bool isValid(unsigned *data){
+		bool allGood = true;
 		if (isES(data)){
 			return true;
 		}else if (!ACQ435_Data::isValid(data)){
@@ -336,74 +355,89 @@ public:
 		new_bs.d7 = bc.collect_bits(data, 7);
 		new_bs.d6 = bc.collect_bits(data, 6);
 		new_bs.d5 = bc.collect_bits(data, 5);
-
-		if (always_valid){
-			fprintf(stderr, "%08x %08x %08x\n",
-					new_bs.d7, new_bs.d6, new_bs.d5);
-			return true;
-		}
-		if (new_bs.d7 != bs.d7+1){
-			fprintf(stderr, "d7 error 0x%08x 0x%08x\n",
-					bs.d7, new_bs.d7);
-			return false;
-		}
 		time_t now = time(0);
-		if (now != last_time){
-			fprintf(stderr, "Sample Count:%08x\n", new_bs.d7);
-		}
-		if (new_bs.d6 != bs.d6){
-			printf("%16lld sc %d d6 %08x => %08x\n", byte_count, bs.d7, bs.d6, new_bs.d6);
-		}
-		if (new_bs.d5 != bs.d5){
-			printf("%16lld sc %d d5 %08x => %08x\n", byte_count, bs.d7, bs.d5, new_bs.d5);
+
+		if (first_sample){
+			first_sample = false;
+		}else{
+			if (always_valid){
+				fprintf(stderr, "%08x %08x %08x\n",
+					new_bs.d7, new_bs.d6, new_bs.d5);
+			}else if (new_bs.d7 != bs.d7+1){
+				fprintf(stderr, "d7 error 0x%08x 0x%08x\n",
+					bs.d7, new_bs.d7);
+				return allGood = false;
+			}else{
+
+				if (now != last_time){
+					fprintf(stderr, "Sample Count:%08x\n", new_bs.d7);
+				}
+				if (new_bs.d6 != bs.d6){
+					printf("%16lld sc %d d6 %08x => %08x\n",
+							byte_count, bs.d7, bs.d6, new_bs.d6);
+				}
+				if (new_bs.d5 != bs.d5){
+					printf("%16lld sc %d d5 %08x => %08x\n",
+						byte_count, bs.d7, bs.d5, new_bs.d5);
+				}
+			}
 		}
 		bs = new_bs;
 		last_time = now;
 
-		return true;
+		return allGood;
+	}
+	virtual void print() {
+		printf("Bitslice Frame:");
+		ACQ435_Data::print();
 	}
 };
 
+
+enum BITSLICE {
+	BS_NONE,
+	BS_LSB_FIRST = 'l',
+	BS_MSB_FIRST = 'm'
+};
+
+enum BITSLICE isBitSlice(const char* _def)
+{
+	if (strchr(_def, BS_LSB_FIRST) != 0){
+		return BS_LSB_FIRST;
+	}else if (strchr(_def, BS_MSB_FIRST) != 0){
+		return BS_MSB_FIRST;
+	}else{
+		const char* bsf = getenv("BITSLICE_FRAME");
+		if (bsf != 0){
+			if (strcmp(bsf, "LSB") == 0){
+				return BS_LSB_FIRST;
+			}
+			if (strcmp(bsf, "MSB") == 0){
+				return BS_MSB_FIRST;
+			}
+		}
+	}
+	return BS_NONE;
+}
 bool ACQ435_Data::monitor_spad;
 ACQ435_Data* ACQ435_Data::create(const char* _def){
 	int _site;
 	char *bank_def;
-	bool bitslice = getenv("BITSLICE_FRAME") != 0;
-
-	bool nosid = bitslice || getenv("NOSID") != 0;
+	enum BITSLICE bitslice = isBitSlice(_def );
+	bool nosid = bitslice != BS_NONE || getenv("NOSID") != 0;
 
 	int rc;
-	static bool done_one;
+
 #define RETERR	do { rc = __LINE__; goto parse_err; } while(0)
-
-	if (!done_one){
-		if (getenv("NOSID")){
-			ID_MASK = 0x1f;
-			fprintf(stderr, "ID_MASK set %02x\n", ID_MASK);
-		}else{
-			ID_MASK = 0xff;
-		}
-
-		if (getenv("MONITOR_SPAD") != 0){
-			monitor_spad = atoi(getenv("MONITOR_SPAD"));
-		}
-		done_one = true;
-	}
 
 	if (sscanf(_def, "%d=%ms", &_site, &bank_def) != 2) RETERR;
 
 	if (!(_site >= 0 && _site <= 6)) RETERR;
 
 
-	if (nosid){
-		ID_MASK = 0x1f;
-		fprintf(stderr, "ID_MASK set %02x\n", ID_MASK);
-	}else{
-		ID_MASK = 0xff;
-	}
-	if (bitslice){
+	if (bitslice != BS_NONE){
 		BitCollector *bc;
-		if (strcmp(getenv("BITSLICE_FRAME"), "LSB") == 0){
+		if (bitslice = BS_LSB_FIRST){
 			bc = new BitCollectorLsbFirst;
 		}else{
 			bc = new BitCollectorMsbFirst;
@@ -416,7 +450,7 @@ ACQ435_Data* ACQ435_Data::create(const char* _def){
 		return new ACQ435_DataBitslice(*bc,
 				_def, _site, bank_def, always_valid);
 	}else{
-		return new ACQ435_Data(_def, _site, bank_def);
+		return new ACQ435_Data(_def, _site, bank_def, getenv("NOSID")? 0x1f: 0xff);
 	}
 	parse_err:
 	fprintf(stderr, "ERROR: line:%d USAGE: site=[ABCD][S]", rc);
@@ -427,6 +461,9 @@ ACQ435_Data* ACQ435_Data::create(const char* _def){
 
 int main(int argc, char* argv[])
 {
+	if (getenv("VERBOSE")){
+		verbose = atoi(getenv("VERBOSE"));
+	}
 	std::vector<ACQ435_Data*> sites;
 	for (int ii = 1; ii < argc; ++ii){
 		ACQ435_Data* site = ACQ435_Data::create(argv[ii]);
@@ -456,7 +493,7 @@ int main(int argc, char* argv[])
 			ACQ435_Data* module = sites.at(si);
 			if (!module->isValid(buf)){
 				printf("ERROR at %lld site:%d\n",
-						byte_count, si);
+				byte_count, si);
 			}
 		}
 		byte_count += sample_size * sizeof(unsigned);
