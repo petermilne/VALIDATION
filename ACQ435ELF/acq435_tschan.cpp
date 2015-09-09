@@ -494,8 +494,11 @@ void makeMask(const char* mask)
 
 }
 
+
 int main(int argc, char* argv[])
 {
+	unsigned long maxsamples = 0;
+
 	printf("Hellos\n");
 	if (getenv("VERBOSE")){
 		verbose = atoi(getenv("VERBOSE"));
@@ -513,6 +516,8 @@ int main(int argc, char* argv[])
 			}
 		}else if (sscanf(argv[ii], "--mask=%s", mask_def) == 1){
 			cmask.makeMask(mask_def);
+		}else if (sscanf(argv[ii], "--maxsamples=%lu", &maxsamples) == 1){
+			;
 		}else{
 			ACQ435_Data* site = ACQ435_Data::create(argv[ii]);
 			if (site){
@@ -555,6 +560,9 @@ int main(int argc, char* argv[])
 		}
 		byte_count += sample_size * sizeof(unsigned);
 		++sample_count;
+		if (maxsamples && sample_count > maxsamples){
+			break;
+		}
 	}
 
 	if (fout) fclose(fout);
