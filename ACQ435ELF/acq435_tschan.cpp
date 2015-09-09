@@ -485,10 +485,12 @@ public:
 	}
 };
 
-ChannelMask cmask;
-
-unsigned long maxsamples = 0;
-
+namespace UI {
+	ChannelMask cmask;
+	unsigned long maxsamples = 0;
+	FILE* fout = 0;
+	bool filenames_on_stdin = false;
+};
 
 class FileProcessor {
 	unsigned* buf;
@@ -527,7 +529,7 @@ public:
 			}
 			if (fout){
 				for (int iw = 0; iw != sample_size; ++iw){
-					if (cmask(iw+1)){
+					if (UI::cmask(iw+1)){
 						fwrite(&ACQ435_DataBitslice::sample_count, sizeof(unsigned), 1, fout);
 						fwrite(buf+iw, sizeof(unsigned), 1, fout);
 					}
@@ -535,7 +537,7 @@ public:
 			}
 			byte_count += sample_size * sizeof(unsigned);
 			++sample_count;
-			if (maxsamples && sample_count > maxsamples){
+			if (UI::maxsamples && sample_count > UI::maxsamples){
 				break;
 			}
 		}
@@ -543,8 +545,7 @@ public:
 };
 
 
-FILE* fout = 0;
-bool filenames_on_stdin = false;
+
 
 void ui(int argc, char* argv[], FileProcessor& fp)
 {
@@ -554,16 +555,16 @@ void ui(int argc, char* argv[], FileProcessor& fp)
 		char mask_def[128];
 		printf("this arg:%s\n", this_arg);
 		if (sscanf(this_arg, "--outfile=%s", fname) == 1){
-			fout = fopen(fname, "w");
-			if (!fout){
+			UI::fout = fopen(fname, "w");
+			if (!UI::fout){
 				perror(fname);
 			}
 		}else if (sscanf(this_arg, "--mask=%s", mask_def) == 1){
-			cmask.makeMask(mask_def);
-		}else if (sscanf(this_arg, "--maxsamples=%lu", &maxsamples) == 1){
+			UI::cmask.makeMask(mask_def);
+		}else if (sscanf(this_arg, "--maxsamples=%lu", &UI::maxsamples) == 1){
 			;
 		}else if (strcmp(this_arg, "--filenames") == 0){
-			filenames_on_stdin = true;
+			UI::filenames_on_stdin = true;
 		}else{
 			fp.addModule(this_arg);
 		}
@@ -572,15 +573,15 @@ void ui(int argc, char* argv[], FileProcessor& fp)
 
 int main(int argc, char* argv[])
 {
-	FileProcessor fp;
-
 	if (getenv("VERBOSE")){
 		verbose = atoi(getenv("VERBOSE"));
 	}
 
+	FileProcessor fp;
+
 	ui(argc, argv, fp);
 
-	if (filenames_on_stdin){
+	if (UI::filenames_on_stdin){
 		char fname[80];
 		while(fgets(fname, 80, stdin)){
 			FILE* fpin = fopen(fname, "r");
@@ -588,13 +589,11 @@ int main(int argc, char* argv[])
 				perror(fname);
 				exit(1);
 			}
-			fp(fpin, fout);
+			fp(fpin, UI::fout);
 			fclose(fpin);
 		}
 	}else{
-		fp(stdin, fout);
+		fp(stdin, UI::fout);
 	}
-
-	if (fout) fclose(fout);
 }
 
