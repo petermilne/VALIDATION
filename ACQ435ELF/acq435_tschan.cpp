@@ -487,83 +487,97 @@ public:
 
 ChannelMask cmask;
 
-int channel_mask[MAXCHAN+1];	// index from 1
-
-void makeMask(const char* mask)
-{
-
-}
+unsigned long maxsamples = 0;
 
 
-int main(int argc, char* argv[])
-{
-	unsigned long maxsamples = 0;
-
-	printf("Hellos\n");
-	if (getenv("VERBOSE")){
-		verbose = atoi(getenv("VERBOSE"));
-	}
-	FILE* fout = 0;
+class FileProcessor {
+	unsigned* buf;
+	unsigned long sample_count;
 	std::vector<ACQ435_Data*> sites;
+	int sample_size;
+public:
+	FileProcessor() : buf(0), sample_count(0), sample_size(0) {
+	}
+
+	void addModule(const char* def) {
+		ACQ435_Data* module = ACQ435_Data::create(def);
+		if (module){
+			module->setOffset(sample_size);
+			module->print();
+			sample_size += module->getNwords();
+			sites.push_back(module);
+		}else{
+			fprintf(stderr, "ERROR: failed to create site \"%s\"\n",
+						def);
+			exit(1);
+		}
+	}
+
+	void operator() (FILE* fin, FILE* fout) {
+
+		if (!buf) buf = new unsigned[sample_size];
+
+		while(fread(buf, sizeof(unsigned), sample_size, fin) == sample_size){
+			for (int si = 0; si < sites.size(); ++si){
+				ACQ435_Data* module = sites.at(si);
+				if (!module->isValid(buf)){
+					printf("ERROR at %lld site:%d\n",
+					byte_count, si);
+				}
+			}
+			if (fout){
+				for (int iw = 0; iw != sample_size; ++iw){
+					if (cmask(iw+1)){
+						fwrite(&ACQ435_DataBitslice::sample_count, sizeof(unsigned), 1, fout);
+						fwrite(buf+iw, sizeof(unsigned), 1, fout);
+					}
+				}
+			}
+			byte_count += sample_size * sizeof(unsigned);
+			++sample_count;
+			if (maxsamples && sample_count > maxsamples){
+				break;
+			}
+		}
+	}
+};
+
+
+FILE* fout = 0;
+
+void ui(int argc, char* argv[], FileProcessor& fp)
+{
 	for (int ii = 1; ii < argc; ++ii){
+		const char* this_arg = argv[ii];
 		char fname[128];
 		char mask_def[128];
-		printf("this arg:%s\n", argv[ii]);
-		if (sscanf(argv[ii], "--outfile=%s", fname) == 1){
+		printf("this arg:%s\n", this_arg);
+		if (sscanf(this_arg, "--outfile=%s", fname) == 1){
 			fout = fopen(fname, "w");
 			if (!fout){
 				perror(fname);
 			}
-		}else if (sscanf(argv[ii], "--mask=%s", mask_def) == 1){
+		}else if (sscanf(this_arg, "--mask=%s", mask_def) == 1){
 			cmask.makeMask(mask_def);
-		}else if (sscanf(argv[ii], "--maxsamples=%lu", &maxsamples) == 1){
+		}else if (sscanf(this_arg, "--maxsamples=%lu", &maxsamples) == 1){
 			;
 		}else{
-			ACQ435_Data* site = ACQ435_Data::create(argv[ii]);
-			if (site){
-				sites.push_back(site);
-			}else{
-				fprintf(stderr, "ERROR: failed to create site \"%s\"\n",
-						argv[ii]);
-				return -1;
-			}
+			fp.addModule(this_arg);
 		}
 	}
+}
 
-	int sample_size = 0;
-	for (int si = 0; si < sites.size(); ++si){
-		ACQ435_Data* module = sites.at(si);
-		module->setOffset(sample_size);
-		module->print();
-		sample_size += module->getNwords();
+int main(int argc, char* argv[])
+{
+
+	FileProcessor fp;
+
+	if (getenv("VERBOSE")){
+		verbose = atoi(getenv("VERBOSE"));
 	}
-	//ACQ435_Data::create(argv[ii])->print();
+	ui(argc, argv, fp);
 
-	unsigned* buf = new unsigned[sample_size];
-	unsigned long sample_count = 0;
-
-	while(fread(buf, sizeof(unsigned), sample_size, stdin) == sample_size){
-		for (int si = 0; si < sites.size(); ++si){
-			ACQ435_Data* module = sites.at(si);
-			if (!module->isValid(buf)){
-				printf("ERROR at %lld site:%d\n",
-				byte_count, si);
-			}
-		}
-		if (fout){
-			for (int iw = 0; iw != sample_size; ++iw){
-				if (cmask(iw+1)){
-					fwrite(&ACQ435_DataBitslice::sample_count, sizeof(unsigned), 1, fout);
-					fwrite(buf+iw, sizeof(unsigned), 1, fout);
-				}
-			}
-		}
-		byte_count += sample_size * sizeof(unsigned);
-		++sample_count;
-		if (maxsamples && sample_count > maxsamples){
-			break;
-		}
-	}
+	fp(stdin, fout);
 
 	if (fout) fclose(fout);
 }
