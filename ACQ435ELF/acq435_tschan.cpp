@@ -544,6 +544,7 @@ public:
 
 
 FILE* fout = 0;
+bool filenames_on_stdin = false;
 
 void ui(int argc, char* argv[], FileProcessor& fp)
 {
@@ -561,6 +562,8 @@ void ui(int argc, char* argv[], FileProcessor& fp)
 			cmask.makeMask(mask_def);
 		}else if (sscanf(this_arg, "--maxsamples=%lu", &maxsamples) == 1){
 			;
+		}else if (strcmp(this_arg, "--filenames") == 0){
+			filenames_on_stdin = true;
 		}else{
 			fp.addModule(this_arg);
 		}
@@ -569,15 +572,28 @@ void ui(int argc, char* argv[], FileProcessor& fp)
 
 int main(int argc, char* argv[])
 {
-
 	FileProcessor fp;
 
 	if (getenv("VERBOSE")){
 		verbose = atoi(getenv("VERBOSE"));
 	}
+
 	ui(argc, argv, fp);
 
-	fp(stdin, fout);
+	if (filenames_on_stdin){
+		char fname[80];
+		while(fgets(fname, 80, stdin)){
+			FILE* fpin = fopen(fname, "r");
+			if (fpin == 0){
+				perror(fname);
+				exit(1);
+			}
+			fp(fpin, fout);
+			fclose(fpin);
+		}
+	}else{
+		fp(stdin, fout);
+	}
 
 	if (fout) fclose(fout);
 }
