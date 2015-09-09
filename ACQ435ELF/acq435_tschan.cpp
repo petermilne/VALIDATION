@@ -28,6 +28,10 @@
 
 #include <vector>
 #include <time.h>
+
+#include "acq-util.h"
+
+#define MAXCHAN		192
 #define MAXWORDS	66
 
 #define ES_MAGIC 	0xaa55f151
@@ -459,6 +463,36 @@ ACQ435_Data* ACQ435_Data::create(const char* _def){
 }
 
 
+class ChannelMask {
+	int *mask;
+public:
+	ChannelMask() {
+		mask = new int[MAXCHAN+1];
+
+		for (int ic = 1; ic < MAXCHAN+1; ++ic){
+			mask[ic] = 1;	// default : enable all
+		}
+	}
+	void makeMask(const char* mask_def) {
+		for (int ic = 1; ic < MAXCHAN+1; ++ic){
+			mask[ic] = 0;
+		}
+		acqMakeChannelRange(mask, MAXCHAN, mask_def);
+	}
+
+	bool operator() (int chan){
+		return mask[chan];
+	}
+};
+
+ChannelMask cmask;
+
+int channel_mask[MAXCHAN+1];	// index from 1
+
+void makeMask(const char* mask)
+{
+
+}
 
 int main(int argc, char* argv[])
 {
@@ -470,21 +504,24 @@ int main(int argc, char* argv[])
 	std::vector<ACQ435_Data*> sites;
 	for (int ii = 1; ii < argc; ++ii){
 		char fname[128];
+		char mask_def[128];
 		printf("this arg:%s\n", argv[ii]);
 		if (sscanf(argv[ii], "--outfile=%s", fname) == 1){
 			fout = fopen(fname, "w");
 			if (!fout){
 				perror(fname);
 			}
-			continue;
-		}
-		ACQ435_Data* site = ACQ435_Data::create(argv[ii]);
-		if (site){
-			sites.push_back(site);
+		}else if (sscanf(argv[ii], "--mask=%s", mask_def) == 1){
+			cmask.makeMask(mask_def);
 		}else{
-			fprintf(stderr, "ERROR: failed to create site \"%s\"\n",
-					argv[ii]);
-			return -1;
+			ACQ435_Data* site = ACQ435_Data::create(argv[ii]);
+			if (site){
+				sites.push_back(site);
+			}else{
+				fprintf(stderr, "ERROR: failed to create site \"%s\"\n",
+						argv[ii]);
+				return -1;
+			}
 		}
 	}
 
@@ -510,8 +547,10 @@ int main(int argc, char* argv[])
 		}
 		if (fout){
 			for (int iw = 0; iw != sample_size; ++iw){
-				fwrite(&ACQ435_DataBitslice::sample_count, sizeof(unsigned), 1, fout);
-				fwrite(buf+iw, sizeof(unsigned), 1, fout);
+				if (cmask(iw+1)){
+					fwrite(&ACQ435_DataBitslice::sample_count, sizeof(unsigned), 1, fout);
+					fwrite(buf+iw, sizeof(unsigned), 1, fout);
+				}
 			}
 		}
 		byte_count += sample_size * sizeof(unsigned);
