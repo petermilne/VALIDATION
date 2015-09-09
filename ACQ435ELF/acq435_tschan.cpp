@@ -510,10 +510,8 @@ int main(int argc, char* argv[])
 		}
 		if (fout){
 			for (int iw = 0; iw != sample_size; ++iw){
-				fwrite(&sample_count, sizeof(unsigned), 1, fout);
 				fwrite(&ACQ435_DataBitslice::sample_count, sizeof(unsigned), 1, fout);
 				fwrite(buf+iw, sizeof(unsigned), 1, fout);
-				fwrite(&iw, sizeof(unsigned), 1, fout);
 			}
 		}
 		byte_count += sample_size * sizeof(unsigned);
