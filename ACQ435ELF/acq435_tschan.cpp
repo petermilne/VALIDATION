@@ -498,7 +498,7 @@ int main(int argc, char* argv[])
 	//ACQ435_Data::create(argv[ii])->print();
 
 	unsigned* buf = new unsigned[sample_size];
-
+	unsigned long sample_count = 0;
 
 	while(fread(buf, sizeof(unsigned), sample_size, stdin) == sample_size){
 		for (int si = 0; si < sites.size(); ++si){
@@ -510,11 +510,14 @@ int main(int argc, char* argv[])
 		}
 		if (fout){
 			for (int iw = 0; iw != sample_size; ++iw){
+				fwrite(&sample_count, sizeof(unsigned), 1, fout);
 				fwrite(&ACQ435_DataBitslice::sample_count, sizeof(unsigned), 1, fout);
 				fwrite(buf+iw, sizeof(unsigned), 1, fout);
+				fwrite(&iw, sizeof(unsigned), 1, fout);
 			}
 		}
 		byte_count += sample_size * sizeof(unsigned);
+		++sample_count;
 	}
 
 	if (fout) fclose(fout);
