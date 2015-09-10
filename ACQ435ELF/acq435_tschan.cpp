@@ -571,6 +571,19 @@ void ui(int argc, char* argv[], FileProcessor& fp)
 	}
 }
 
+void process_filenames_stdin(FileProcessor& fp)
+{
+	char fname[80];
+	while(fgets(fname, 80, stdin)){
+		FILE* fpin = fopen(fname, "r");
+		if (fpin == 0){
+			perror(fname);
+			exit(1);
+		}
+		fp(fpin, UI::fout);
+		fclose(fpin);
+	}
+}
 int main(int argc, char* argv[])
 {
 	if (getenv("VERBOSE")){
@@ -582,16 +595,7 @@ int main(int argc, char* argv[])
 	ui(argc, argv, fp);
 
 	if (UI::filenames_on_stdin){
-		char fname[80];
-		while(fgets(fname, 80, stdin)){
-			FILE* fpin = fopen(fname, "r");
-			if (fpin == 0){
-				perror(fname);
-				exit(1);
-			}
-			fp(fpin, UI::fout);
-			fclose(fpin);
-		}
+		process_filenames_stdin(fp);
 	}else{
 		fp(stdin, UI::fout);
 	}
