@@ -584,6 +584,9 @@ void process_filenames_stdin(FileProcessor& fp)
 			perror(fname);
 			exit(1);
 		}
+		if (verbose){
+			fprintf(stderr, "process file %s\n", fname);
+		}
 		fp(fpin, UI::fout);
 		fclose(fpin);
 	}
