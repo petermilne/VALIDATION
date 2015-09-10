@@ -575,6 +575,10 @@ void process_filenames_stdin(FileProcessor& fp)
 {
 	char fname[80];
 	while(fgets(fname, 80, stdin)){
+		char* p_end;
+		if ((p_end = strchr(fname, '\n'))){
+			*p_end = '\0';
+		}
 		FILE* fpin = fopen(fname, "r");
 		if (fpin == 0){
 			perror(fname);
