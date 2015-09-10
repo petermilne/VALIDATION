@@ -579,11 +579,14 @@ void ui(int argc, char* argv[], FileProcessor& fp)
 void process_filenames_stdin(FileProcessor& fp)
 {
 	char fname[80];
+	int consecutive_errors = 0;
+
 	while(fgets(fname, 80, stdin)){
 		char* p_end;
 		if ((p_end = strchr(fname, '\n'))){
 			*p_end = '\0';
 		}
+	open_file:
 		FILE* fpin = fopen(fname, "r");
 		if (fpin == 0){
 			perror(fname);
@@ -593,9 +596,16 @@ void process_filenames_stdin(FileProcessor& fp)
 			fprintf(stderr, "process file %s\n", fname);
 		}
 		if (fp(fpin, UI::fout)){
-			f
-			fprintf(stderr, "ERROR in file %s\n", fname);
-			exit(1);
+			if (consecutive_errors++ < 1){
+				fprintf(stderr, "ERROR in file %s retry\n", fname);
+				fclose(fpin);
+				goto open_file;
+			}else{
+				fprintf(stderr, "ERROR in file %s FAILED second chance\n", fname);
+				exit(1);
+			}
+		}else{
+			consecutive_errors = 0;
 		}
 		fclose(fpin);
 	}
