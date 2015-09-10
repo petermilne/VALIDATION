@@ -596,11 +596,15 @@ void process_filenames_stdin(FileProcessor& fp)
 			fprintf(stderr, "process file %s\n", fname);
 		}
 		if (fp(fpin, UI::fout)){
+			char test[128];
+			sprintf(test, "sha1sum %s", fname);
 			if (consecutive_errors++ < 1){
+				system(test);
 				fprintf(stderr, "ERROR in file %s retry\n", fname);
 				fclose(fpin);
 				goto open_file;
 			}else{
+				system(test);
 				fprintf(stderr, "ERROR in file %s FAILED second chance\n", fname);
 				exit(1);
 			}
