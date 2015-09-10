@@ -362,6 +362,9 @@ public:
 		new_bs.d5 = bc.collect_bits(data, 5);
 		time_t now = time(0);
 
+		if (new_bs.d7 == 0 && verbose){
+			fprintf(stderr, "isValid new_bs=0 bs:%08x\n", bs.d7);
+		}
 		if (first_sample){
 			first_sample = false;
 		}else{
