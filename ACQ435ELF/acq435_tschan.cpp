@@ -45,7 +45,7 @@
  * lm   : bitslice LSB, MSB
  */
 
-bool verbose;
+int verbose;
 
 unsigned long long byte_count = 0;
 class ACQ435_Data {
@@ -365,6 +365,9 @@ public:
 		if (new_bs.d7 == 0 && verbose){
 			fprintf(stderr, "isValid new_bs=0 bs:%08x\n", bs.d7);
 		}
+
+
+
 		if (first_sample){
 			first_sample = false;
 		}else{
@@ -500,8 +503,26 @@ class FileProcessor {
 	unsigned long sample_count;
 	std::vector<ACQ435_Data*> sites;
 	int sample_size;
+	int buffer_count;
+	FILE* sc_log;
+
+	void onNewBuffer() {
+		char fname[80];
+		sprintf(fname, "sc-%03d.log", ++buffer_count);
+		if (sc_log){
+			fclose(sc_log);
+		}
+		sc_log = fopen(fname, "w");
+		if (sc_log == 0){
+			perror(fname);
+			exit(1);
+		}
+	}
+	void logSC() {
+		fwrite(&ACQ435_DataBitslice::sample_count, sizeof(unsigned), 1, sc_log);
+	}
 public:
-	FileProcessor() : buf(0), sample_count(0), sample_size(0) {
+	FileProcessor() : buf(0), sample_count(0), sample_size(0), buffer_count(0), sc_log(0) {
 	}
 
 	void addModule(const char* def) {
@@ -519,6 +540,7 @@ public:
 	}
 
 	virtual int operator() (FILE* fin, FILE* fout) {
+		onNewBuffer();
 
 		if (!buf) buf = new unsigned[sample_size];
 
@@ -533,6 +555,7 @@ public:
 					return -1;
 				}
 			}
+			logSC();
 			if (fout){
 				for (int iw = 0; iw != sample_size; ++iw){
 					if (UI::cmask(iw+1)){
