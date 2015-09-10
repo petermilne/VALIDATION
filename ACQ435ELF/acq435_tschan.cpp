@@ -515,16 +515,19 @@ public:
 		}
 	}
 
-	void operator() (FILE* fin, FILE* fout) {
+	virtual int operator() (FILE* fin, FILE* fout) {
 
 		if (!buf) buf = new unsigned[sample_size];
+
+		unsigned samples_file = 0;
 
 		while(fread(buf, sizeof(unsigned), sample_size, fin) == sample_size){
 			for (int si = 0; si < sites.size(); ++si){
 				ACQ435_Data* module = sites.at(si);
 				if (!module->isValid(buf)){
-					printf("ERROR at %lld site:%d\n",
-					byte_count, si);
+					printf("ERROR at %lld site:%d offset:%d samples\n",
+					byte_count, si, samples_file);
+					return -1;
 				}
 			}
 			if (fout){
@@ -537,10 +540,12 @@ public:
 			}
 			byte_count += sample_size * sizeof(unsigned);
 			++sample_count;
+			++samples_file;
 			if (UI::maxsamples && sample_count > UI::maxsamples){
 				break;
 			}
 		}
+		return 0;
 	}
 };
 
@@ -587,7 +592,10 @@ void process_filenames_stdin(FileProcessor& fp)
 		if (verbose){
 			fprintf(stderr, "process file %s\n", fname);
 		}
-		fp(fpin, UI::fout);
+		if (fp(fpin, UI::fout)){
+			fprintf(stderr, "ERROR in file %s\n", fname);
+			exit(1);
+		}
 		fclose(fpin);
 	}
 }
