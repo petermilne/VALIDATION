@@ -137,7 +137,7 @@ public:
 				if (mydata[ic] == sample+1){
 					++sample;
 					if (sample%100000 == 0){
-						printf("sample:%lld\n", sample);
+						printf("sample:%u\n", sample);
 					}
 					break;
 				}else{
