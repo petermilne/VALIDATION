@@ -86,7 +86,7 @@ protected:
 		bool upper = ic >= nwords/2;
 		int ib = ic/4;
 
-		if (verbose){
+		if (verbose > 1){
 			printf("cid(%d) ib:%d switch(%c) %s\n",
 				ic, ib, actual_banks[ib], actual_banks);
 		}
@@ -258,7 +258,7 @@ public:
 				}
 			}
 
-			if (verbose){
+			if (verbose > 1){
 				printf("%8lld [%2d] %08x %08x  %s\n",
 					byte_count, ic, ids[ic], mydata[ic],
 					this_error? "ERROR": "OK");
@@ -369,7 +369,7 @@ public:
 				fprintf(stderr, "%08x %08x %08x\n",
 					new_bs.d7, new_bs.d6, new_bs.d5);
 			}else if (new_bs.d7 != bs.d7+1){
-				fprintf(stderr, "d7 error 0x%08x 0x%08x\n",
+				fprintf(stderr, "d7 error old 0x%08x new 0x%08x\n",
 					bs.d7, new_bs.d7);
 				return allGood = false;
 			}else{
@@ -593,6 +593,7 @@ void process_filenames_stdin(FileProcessor& fp)
 			fprintf(stderr, "process file %s\n", fname);
 		}
 		if (fp(fpin, UI::fout)){
+			f
 			fprintf(stderr, "ERROR in file %s\n", fname);
 			exit(1);
 		}
