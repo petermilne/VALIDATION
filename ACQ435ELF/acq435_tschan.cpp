@@ -589,7 +589,7 @@ FileProcessor& FileProcessor::instance()
 {
 	static FileProcessor* _instance;
 
-	if (!instance){
+	if (!_instance){
 		if (UI::two_column){
 			_instance = new FileProcessorTwoColumn;
 		}else{
@@ -598,7 +598,7 @@ FileProcessor& FileProcessor::instance()
 	}
 	return *_instance;
 }
-void ui(int argc, char* argv[], FileProcessor& fp)
+void ui(int argc, char* argv[])
 {
 	for (int ii = 1; ii < argc; ++ii){
 		const char* this_arg = argv[ii];
@@ -619,7 +619,7 @@ void ui(int argc, char* argv[], FileProcessor& fp)
 		}else if (strcmp(this_arg, "--filenames") == 0){
 			UI::filenames_on_stdin = true;
 		}else{
-			fp.addModule(this_arg);
+			FileProcessor::instance().addModule(this_arg);
 		}
 	}
 }
@@ -672,14 +672,12 @@ int main(int argc, char* argv[])
 		verbose = atoi(getenv("VERBOSE"));
 	}
 
-	FileProcessor& fp = FileProcessor::instance();;
-
-	ui(argc, argv, fp);
+	ui(argc, argv);
 
 	if (UI::filenames_on_stdin){
-		process_filenames_stdin(fp);
+		process_filenames_stdin(FileProcessor::instance());
 	}else{
-		fp(stdin, UI::fout);
+		FileProcessor::instance()(stdin, UI::fout);
 	}
 }
 
