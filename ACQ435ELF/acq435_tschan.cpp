@@ -568,20 +568,26 @@ public:
 
 
 class FileProcessorTwoColumn: public FileProcessor {
-
+	unsigned* lbuf;
 protected:
 	virtual int actOnValidData(unsigned buf[], FILE* fout){
 		unsigned sc = ACQ435_DataBitslice::sample_count;
 
+		if (lbuf == 0) lbuf = new unsigned[sample_size*2];
+
+		unsigned* cursor = lbuf;
+
 		for (int iw = 0; iw != sample_size; ++iw){
 			if (UI::cmask(iw+1)){
-				fwrite(&sc,    sizeof(unsigned), 1, fout);
-				fwrite(buf+iw, sizeof(unsigned), 1, fout);
+				*cursor++ = sc;
+				*cursor++ = buf[iw];
 			}
 		}
+		fwrite(lbuf, sizeof(unsigned), cursor-lbuf, fout);
 	}
 public:
-FileProcessorTwoColumn() {}
+	FileProcessorTwoColumn() : lbuf(0)
+	{}
 };
 
 
