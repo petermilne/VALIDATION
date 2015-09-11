@@ -501,33 +501,25 @@ namespace UI {
 	unsigned long maxsamples = 0;
 	FILE* fout = 0;
 	bool filenames_on_stdin = false;
+	int two_column = 1;
 };
 
 class FileProcessor {
+	/* take input file, validate and output. default output is raw */
 	unsigned* buf;
 	unsigned long sample_count;
 	std::vector<ACQ435_Data*> sites;
+protected:
 	int sample_size;
 	int buffer_count;
-	FILE* sc_log;
 
-	void onNewBuffer() {
-		char fname[80];
-		sprintf(fname, "sc-%03d.log", ++buffer_count);
-		if (sc_log){
-			fclose(sc_log);
-		}
-		sc_log = fopen(fname, "w");
-		if (sc_log == 0){
-			perror(fname);
-			exit(1);
-		}
-	}
-	void logSC() {
-		fwrite(&ACQ435_DataBitslice::sample_count, sizeof(unsigned), 1, sc_log);
+protected:
+	virtual int actOnValidData(unsigned buf[], FILE* fout){
+		fwrite(buf, sizeof(unsigned), sample_size, fout);
 	}
 public:
-	FileProcessor() : buf(0), sample_count(0), sample_size(0), buffer_count(0), sc_log(0) {
+	FileProcessor():
+		buf(0), sample_count(0), sample_size(0), buffer_count(0) {
 	}
 
 	void addModule(const char* def) {
@@ -545,10 +537,8 @@ public:
 	}
 
 	virtual int operator() (FILE* fin, FILE* fout) {
-		//onNewBuffer();
 
 		if (!buf) buf = new unsigned[sample_size];
-
 		unsigned samples_file = 0;
 
 		while(fread(buf, sizeof(unsigned), sample_size, fin) == sample_size){
@@ -560,29 +550,54 @@ public:
 					return -1;
 				}
 			}
-			//logSC();
-			if (fout){
-				for (int iw = 0; iw != sample_size; ++iw){
-					if (UI::cmask(iw+1)){
-						fwrite(&ACQ435_DataBitslice::sample_count, sizeof(unsigned), 1, fout);
-						fwrite(buf+iw, sizeof(unsigned), 1, fout);
-					}
-				}
-			}
+
+			if (fout) actOnValidData(buf, fout);
+
 			byte_count += sample_size * sizeof(unsigned);
 			++sample_count;
 			++samples_file;
 			if (UI::maxsamples && sample_count > UI::maxsamples){
-				break;
+				return 1;
 			}
 		}
 		return 0;
 	}
+
+	static FileProcessor& instance();
 };
 
 
+class FileProcessorTwoColumn: public FileProcessor {
+
+protected:
+	virtual int actOnValidData(unsigned buf[], FILE* fout){
+		unsigned sc = ACQ435_DataBitslice::sample_count;
+
+		for (int iw = 0; iw != sample_size; ++iw){
+			if (UI::cmask(iw+1)){
+				fwrite(&sc,    sizeof(unsigned), 1, fout);
+				fwrite(buf+iw, sizeof(unsigned), 1, fout);
+			}
+		}
+	}
+public:
+FileProcessorTwoColumn() {}
+};
 
 
+FileProcessor& FileProcessor::instance()
+{
+	static FileProcessor* _instance;
+
+	if (!instance){
+		if (UI::two_column){
+			_instance = new FileProcessorTwoColumn;
+		}else{
+			_instance = new FileProcessor;
+		}
+	}
+	return *_instance;
+}
 void ui(int argc, char* argv[], FileProcessor& fp)
 {
 	for (int ii = 1; ii < argc; ++ii){
@@ -595,6 +610,8 @@ void ui(int argc, char* argv[], FileProcessor& fp)
 			if (!UI::fout){
 				perror(fname);
 			}
+		}else if (sscanf(this_arg, "--two_column=%d", &UI::two_column) == 1){
+			;
 		}else if (sscanf(this_arg, "--mask=%s", mask_def) == 1){
 			UI::cmask.makeMask(mask_def);
 		}else if (sscanf(this_arg, "--maxsamples=%lu", &UI::maxsamples) == 1){
@@ -626,7 +643,11 @@ void process_filenames_stdin(FileProcessor& fp)
 		if (verbose){
 			fprintf(stderr, "process file %s\n", fname);
 		}
-		if (fp(fpin, UI::fout)){
+		int rc = fp(fpin, UI::fout);
+		if (rc > 0){
+			fprintf(stderr, "JOB COMPLETE\n");
+			return;
+		}else if (rc < 0){
 			char test[128];
 			sprintf(test, "sha1sum %s", fname);
 			if (consecutive_errors++ < 1){
@@ -651,7 +672,7 @@ int main(int argc, char* argv[])
 		verbose = atoi(getenv("VERBOSE"));
 	}
 
-	FileProcessor fp;
+	FileProcessor& fp = FileProcessor::instance();;
 
 	ui(argc, argv, fp);
 
