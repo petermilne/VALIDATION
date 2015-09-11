@@ -367,8 +367,9 @@ public:
 		}
 
 
-
+#if 0
 		if (first_sample){
+			bs = new_bs;
 			first_sample = false;
 		}else{
 			if (always_valid){
@@ -379,7 +380,6 @@ public:
 					bs.d7, new_bs.d7);
 				return allGood = false;
 			}else{
-				sample_count = bs.d7;
 				if (now != last_time){
 					fprintf(stderr, "Sample Count:%08x\n", new_bs.d7);
 				}
@@ -391,9 +391,14 @@ public:
 					printf("%16lld sc %d d5 %08x => %08x\n",
 						byte_count, bs.d7, bs.d5, new_bs.d5);
 				}
+				bs = new_bs;
 			}
 		}
-		bs = new_bs;
+
+		sample_count = bs.d7;
+#else
+		sample_count = new_bs.d7;
+#endif
 		last_time = now;
 
 		return allGood;
@@ -540,7 +545,7 @@ public:
 	}
 
 	virtual int operator() (FILE* fin, FILE* fout) {
-		onNewBuffer();
+		//onNewBuffer();
 
 		if (!buf) buf = new unsigned[sample_size];
 
@@ -555,7 +560,7 @@ public:
 					return -1;
 				}
 			}
-			logSC();
+			//logSC();
 			if (fout){
 				for (int iw = 0; iw != sample_size; ++iw){
 					if (UI::cmask(iw+1)){
