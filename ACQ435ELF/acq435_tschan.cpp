@@ -669,6 +669,8 @@ void process_filenames_stdin(FileProcessor& fp)
 			}
 		}else{
 			unlink(fname);
+			strcat(fname, ".id");
+			unlink(fname);
 			consecutive_errors = 0;
 		}
 		fclose(fpin);
