@@ -28,6 +28,7 @@
 
 #include <vector>
 #include <time.h>
+#include <unistd.h>
 
 #include "acq-util.h"
 
@@ -667,6 +668,7 @@ void process_filenames_stdin(FileProcessor& fp)
 				exit(1);
 			}
 		}else{
+			unlink(fname);
 			consecutive_errors = 0;
 		}
 		fclose(fpin);
