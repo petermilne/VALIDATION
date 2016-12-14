@@ -280,7 +280,12 @@ public:
 	unsigned ID_MASK;
 
 	static bool line_to_go;
+	static time_t last_time;
+	static time_t now;
 
+	static void print_start() {
+		now = time(0);
+	}
 	static void print_tidy() {
 		if (line_to_go){
 			FILE *fp = popen("date", "r");
@@ -294,6 +299,8 @@ public:
 };
 
 bool ACQ435_Data::line_to_go;
+time_t ACQ435_Data::last_time;
+time_t ACQ435_Data::now;
 
 
 class BitCollector {
@@ -342,7 +349,6 @@ class ACQ435_DataBitslice : public ACQ435_Data {
 		BS(): d7(0), d6(0), d5(0)
 		{}
 	} bs;
-	time_t last_time;
 	BitCollector& bc;
 	bool first_sample;
 
@@ -353,7 +359,6 @@ public:
 			const char* _banks, bool _always_valid) :
 				ACQ435_Data(_def, _site, _banks, 0x1f),
 				bc(_bc),
-				last_time(0),
 				always_valid(_always_valid),
 				first_sample(true)
 	{}
@@ -369,7 +374,6 @@ public:
 		new_bs.d7 = bc.collect_bits(data, 7);
 		new_bs.d6 = bc.collect_bits(data, 6);
 		new_bs.d5 = bc.collect_bits(data, 5);
-		time_t now = time(0);
 
 		if (first_sample){
 			first_sample = false;
@@ -398,7 +402,6 @@ public:
 			}
 		}
 		bs = new_bs;
-		last_time = now;
 
 		return allGood;
 	}
@@ -504,6 +507,7 @@ int main(int argc, char* argv[])
 
 
 	while(fread(buf, sizeof(unsigned), sample_size, stdin) == sample_size){
+		ACQ435_Data::print_start();
 		for (int si = 0; si < sites.size(); ++si){
 			ACQ435_Data* module = sites.at(si);
 			if (!module->isValid(buf)){
