@@ -366,7 +366,7 @@ public:
 			}else if (new_bs.d7 != bs.d7+1){
 				fprintf(stderr, "d7 error 0x%08x 0x%08x\n",
 					bs.d7, new_bs.d7);
-				return allGood = false;
+				allGood = false;
 			}else{
 
 				if (now != last_time){
