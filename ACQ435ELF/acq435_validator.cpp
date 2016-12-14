@@ -279,8 +279,22 @@ public:
 	}
 	unsigned ID_MASK;
 
+	static bool line_to_go;
+
+	static void print_tidy() {
+		if (line_to_go){
+			FILE *fp = popen("date", "r");
+			char result[80];
+			fprintf(stderr, " %s\n", fgets(result, 79, fp));
+			pclose(fp);
+			line_to_go = false;
+		}
+	}
 	static ACQ435_Data* create(const char* _def);
 };
+
+bool ACQ435_Data::line_to_go;
+
 
 class BitCollector {
 public:
@@ -364,13 +378,14 @@ public:
 				fprintf(stderr, "%08x %08x %08x\n",
 					new_bs.d7, new_bs.d6, new_bs.d5);
 			}else if (new_bs.d7 != bs.d7+1){
-				fprintf(stderr, "d7 error 0x%08x 0x%08x\n",
+				line_to_go = true;
+				fprintf(stderr, "d7 error 0x%08x 0x%08x",
 					bs.d7, new_bs.d7);
 				allGood = false;
 			}else{
-
 				if (now != last_time){
-					fprintf(stderr, "Sample Count:%08x\n", new_bs.d7);
+					line_to_go = true;
+					fprintf(stderr, "Sample Count:%08x ", new_bs.d7);
 				}
 				if (new_bs.d6 != bs.d6){
 					printf("%16lld sc %d d6 %08x => %08x\n",
@@ -497,6 +512,7 @@ int main(int argc, char* argv[])
 			}
 		}
 		byte_count += sample_size * sizeof(unsigned);
+		ACQ435_Data::print_tidy();
 	}
 }
 
