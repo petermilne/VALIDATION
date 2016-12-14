@@ -293,6 +293,7 @@ public:
 			fprintf(stderr, " %s", fgets(result, 79, fp));	// fgets supplies \n
 			pclose(fp);
 			line_to_go = false;
+			last_time = now;
 		}
 	}
 	static ACQ435_Data* create(const char* _def);
