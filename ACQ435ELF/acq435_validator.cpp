@@ -285,7 +285,7 @@ public:
 		if (line_to_go){
 			FILE *fp = popen("date", "r");
 			char result[80];
-			fprintf(stderr, " %s\n", fgets(result, 79, fp));
+			fprintf(stderr, " %s", fgets(result, 79, fp));	// fgets supplies \n
 			pclose(fp);
 			line_to_go = false;
 		}
